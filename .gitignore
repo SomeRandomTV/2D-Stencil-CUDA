@@ -1,0 +1,12 @@
+# Executables
+**/stencil 
+
+# IDE  stuff
+**/.DS_Store
+
+# images
+**/*.pgm
+
+# previous stuff
+**/image_blur.cu
+
