@@ -60,7 +60,7 @@ static void skip_ws(FILE *fp) {
 
 static void get_stuff(); // idk
 
-static int read_pgm(const char *path, uint8_t **grayscale, int *w_out, int *h_out, size_t *img_size) {
+static int read_pgm(const char *path, uint8_t **grayscale, unsigned int *w_out, unsigned int *h_out, size_t *img_size) {
     
     FILE *input_pgm = fopen(path, "rb");
 
@@ -138,15 +138,24 @@ static int read_pgm(const char *path, uint8_t **grayscale, int *w_out, int *h_ou
 
     *grayscale = gray_bytes;
     *img_size = got_bytes;
-    *w_out = w;
-    *h_out = h;
+    *w_out = (unsigned)w;
+    *h_out = (unsigned)h;
 
     return 0;
 
 }
 
 
-__global__ stencil_kernel(const uint8_t *gray, uint8_t *filtered, unsigned int width, unsigned int height);
+__global__ void stencil_kernel(const uint8_t *gray, uint8_t *filtered, unsigned int width, unsigned int height) {
+
+    __shared__ shared_memory[TILE_SIZE + 2][TILE_SIZE + 2];     // 1 pixel halo
+
+
+
+
+
+
+}
 
 
 int main(int argc, char *argv[]) {
@@ -170,7 +179,7 @@ int main(int argc, char *argv[]) {
     printf("Output Path: %s \n", output);
     
     int err_code = 0;
-    int width, height = 0;
+    unsigned int width, height = 0;
     size_t gray_size = 0;
     uint8_t *h_grayscale = nullptr;
     
@@ -193,6 +202,19 @@ int main(int argc, char *argv[]) {
 
     printf("Block set up (%d:%d) \n", block.x, block.y);
     printf("Grid Set up (%d:%d) \n", grid.x, grid.y);
+
+
+    uint8_t *h_output = (uint8_t*)malloc(gray_size);
+    if (h_output == NULL) {
+        fprintf(stderr, "ERRIR: Failed to allocate host memory for output \n");
+        return -32;
+    }
+
+    // ------------ Allocate DEvice Memory ---------
+    uint8_t d_grayscale, d_output = nullptr;
+    CHECK_CUDA(cudaMalloc((void **)&d_grayscale, gray_size));
+    CHECK_CUDA(cudaMalloc((void **)&d_output, gray_size));
+    CHECK_CUDA(cudaMemcpy(d_grayscale, h_grayscale, gray_size, width, height, cudaMemcpyHostToDevice));
 
 
     printf("SUCCESSFULL\n");
