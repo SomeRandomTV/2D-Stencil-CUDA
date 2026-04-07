@@ -58,7 +58,7 @@ static void skip_ws(FILE *fp) {
     }
 }
 
-static void get_stuff(); // idk
+
 
 static int read_pgm(const char *path, uint8_t **grayscale, unsigned int *w_out, unsigned int *h_out, size_t *img_size) {
     
@@ -113,9 +113,7 @@ static int read_pgm(const char *path, uint8_t **grayscale, unsigned int *w_out, 
         fprintf(stderr, "ERROR: Unsupported PGM Header\n");
         fclose(input_pgm);
         return -3;
-    }
-
-    printf("Found w=%d h=%d maxval=%d \n", w, h, maxval);
+    } 
 
     fgetc(input_pgm);
 
@@ -150,6 +148,7 @@ __device__ uint8_t get_pixel(const uint8_t *gray, unsigned int r, int c, unsigne
         return gray[r * w + c];
     }
     return 0;
+}
 
 
 __global__ void stencil_kernel(const uint8_t *gray, uint8_t *filtered, unsigned int width, unsigned int height) {
@@ -167,24 +166,50 @@ __global__ void stencil_kernel(const uint8_t *gray, uint8_t *filtered, unsigned 
     // load center pixels
     shared_tile[ty + 1][tx + 1] = get_pixel(gray, (unsigned)row, (unsigned)height, width, height);
 
+
+    /* ========== Load the Edge Pixels =========== */
+    // Left Column
     if (tx == 0) {
         shared_tile[ty + 1][0] = get_pixel(gray, (unsigned)row, (unsigned)col-1, width, height);
     }
-
-    // load the edge pixels
-
+    
+    // Right Column
     if (tx == TILE_SIZE - 1) {
         shared_tile[ty + 1][TILE_SIZE + 1] = get_pixel(gray, (unsigned)row, (unsigned)col+1, width, height);
     }
-
+    
+    // Top row
     if (ty == 0) {
         shared_tile[0][tx + 1] = get_pixel(gray, (unsigned)row-1, (unsigned)col, width, height);
     }
+
+    // Bottom row
     if (ty == TILE_SIZE - 1) {
-        shared_tile[TILE_SIZE + 1][tx + 1] = get_pixel(gray, (unsigned)row+1, width, height);
+        shared_tile[TILE_SIZE + 1][tx + 1] = get_pixel(gray, (unsigned)row+1, col, width, height);
     }
 
-}
+    /* =========== Load the Corner Pixels =========== */
+    // top Left
+    if (tx == 0 && ty == 0) {
+        shared_tile[0][0] = get_pixel(gray, row-1, col-1, width, height);
+    }
+
+    // Top Right
+    if (tx == TILE_SIZE -1 && ty == 0) {
+        shared_tile[0][TILE_SIZE+1] = get_pixel(gray, row-1, col+1, width, height);
+    }
+
+    // bottom Left
+    if (tx == 0 && ty == TILE_SIZE - 1) {
+        shared_tile[TILE_SIZE+1][0] = get_pixel(gray, row+1, col-1, width, height);
+    }
+
+    // bottom right
+    if (tx == TILE_SIZE - 1 && ty == TILE_SIZE - 1) {
+        shared_tile[TILE_SIZE+1][TILE_SIZE+1] = get_pixel(gray, row+1, col+1, width, height);
+    }
+
+    __syncthreads();
 
 
 
