@@ -5,6 +5,19 @@
 #include <cctype>
 #include <cuda_runtime.h>
 
+
+#define TILE_SIZE 16
+
+#define CHECK_CUDA(call) \
+    do { \
+        cudaError_t err = (call); \
+        if (err != cudaSuccess) { \
+            fprintf(stderr, "CUDA ERROR: %s:%d :%s\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
+            exit(-10); \
+        } \
+    } while (0)
+
+
 /* TF am i doing, right
  *
  * Read grayscale Image
@@ -25,6 +38,8 @@
  *      - 1 Output pixel/Thread
  *      - 2D grid, 2D blocks
  */
+
+
 
 
 static void skip_ws(FILE *fp) {
@@ -131,6 +146,9 @@ static int read_pgm(const char *path, uint8_t **grayscale, int *w_out, int *h_ou
 }
 
 
+__global__ stencil_kernel(const uint8_t *gray, uint8_t *filtered, unsigned int width, unsigned int height);
+
+
 int main(int argc, char *argv[]) {
 
     if (argc != 3) {
@@ -143,7 +161,7 @@ int main(int argc, char *argv[]) {
     printf("Alejandro Rubio \n");
     printf("R11886363 \n");
 
-    // ------ Set Up -------
+    // ------ Inital Set Up -------
    
     const char *input = argv[1];
     const char *output = argv[2];
@@ -166,6 +184,17 @@ int main(int argc, char *argv[]) {
     printf("Image dimensions: %d X %d \n", width, height);
     printf("Image Size (bytes) %zu \n", gray_size);
     
+    // ------------ GPU Set up -----------
+    dim3 block(TILE_SIZE, TILE_SIZE, 1);
+    dim3 grid(
+            (width + TILE_SIZE - 1) / TILE_SIZE,
+            (height * TILE_SIZE * 2 - 1) / (TILE_SIZE * 2)
+        );
+
+    printf("Block set up (%d:%d) \n", block.x, block.y);
+    printf("Grid Set up (%d:%d) \n", grid.x, grid.y);
+
+
     printf("SUCCESSFULL\n");
     return err_code;
 }
