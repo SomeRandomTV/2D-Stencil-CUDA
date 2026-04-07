@@ -145,11 +145,46 @@ static int read_pgm(const char *path, uint8_t **grayscale, unsigned int *w_out, 
 
 }
 
+__device__ uint8_t get_pixel(const uint8_t *gray, unsigned int r, int c, unsigned int w, unsigned int h) {
+    if (r < h && c < w) {
+        return gray[r * w + c];
+    }
+    return 0;
+
 
 __global__ void stencil_kernel(const uint8_t *gray, uint8_t *filtered, unsigned int width, unsigned int height) {
 
-    __shared__ shared_memory[TILE_SIZE + 2][TILE_SIZE + 2];     // 1 pixel halo
+    __shared__ uint8_t shared_tile[TILE_SIZE + 2][TILE_SIZE + 2];     // 1 pixel halo
 
+
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    int col = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // shared memory coords offest by +1 for halo 
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+
+    // load center pixels
+    shared_tile[ty + 1][tx + 1] = get_pixel(gray, (unsigned)row, (unsigned)height, width, height);
+
+    if (tx == 0) {
+        shared_tile[ty + 1][0] = get_pixel(gray, (unsigned)row, (unsigned)col-1, width, height);
+    }
+
+    // load the edge pixels
+
+    if (tx == TILE_SIZE - 1) {
+        shared_tile[ty + 1][TILE_SIZE + 1] = get_pixel(gray, (unsigned)row, (unsigned)col+1, width, height);
+    }
+
+    if (ty == 0) {
+        shared_tile[0][tx + 1] = get_pixel(gray, (unsigned)row-1, (unsigned)col, width, height);
+    }
+    if (ty == TILE_SIZE - 1) {
+        shared_tile[TILE_SIZE + 1][tx + 1] = get_pixel(gray, (unsigned)row+1, width, height);
+    }
+
+}
 
 
 
@@ -197,7 +232,7 @@ int main(int argc, char *argv[]) {
     dim3 block(TILE_SIZE, TILE_SIZE, 1);
     dim3 grid(
             (width + TILE_SIZE - 1) / TILE_SIZE,
-            (height * TILE_SIZE * 2 - 1) / (TILE_SIZE * 2)
+            (height * TILE_SIZE - 1) / (TILE_SIZE - 1)
         );
 
     printf("Block set up (%d:%d) \n", block.x, block.y);
@@ -211,12 +246,19 @@ int main(int argc, char *argv[]) {
     }
 
     // ------------ Allocate DEvice Memory ---------
-    uint8_t d_grayscale, d_output = nullptr;
+    uint8_t *d_grayscale, *d_output = nullptr;
     CHECK_CUDA(cudaMalloc((void **)&d_grayscale, gray_size));
     CHECK_CUDA(cudaMalloc((void **)&d_output, gray_size));
-    CHECK_CUDA(cudaMemcpy(d_grayscale, h_grayscale, gray_size, width, height, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(d_grayscale, h_grayscale, gray_size, cudaMemcpyHostToDevice));
 
+    stencil_kernel<<<grid, block>>>(d_grayscale, d_output, width, height);
+    CHECK_CUDA(cudaGetLastError());
+    CHECK_CUDA(cudaDeviceSynchronize());
 
+    free(h_grayscale);
+    free(h_output);
+    CHECK_CUDA(cudaFree(d_grayscale));
+    CHECK_CUDA(cudaFree(d_output));
     printf("SUCCESSFULL\n");
     return err_code;
 }
