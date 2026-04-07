@@ -156,63 +156,78 @@ __global__ void stencil_kernel(const uint8_t *gray, uint8_t *filtered, unsigned 
     __shared__ uint8_t shared_tile[TILE_SIZE + 2][TILE_SIZE + 2];     // 1 pixel halo
 
 
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    int col = blockIdx.y * blockDim.y + threadIdx.y;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    // shared memory coords offest by +1 for halo 
+    // shared memory coords 
     int tx = threadIdx.x;
     int ty = threadIdx.y;
 
     // load center pixels
-    shared_tile[ty + 1][tx + 1] = get_pixel(gray, (unsigned)row, (unsigned)height, width, height);
+    shared_tile[ty + 1][tx + 1] = get_pixel(gray, row, col, width, height);
 
 
     /* ========== Load the Edge Pixels =========== */
     // Left Column
     if (tx == 0) {
-        shared_tile[ty + 1][0] = get_pixel(gray, (unsigned)row, (unsigned)col-1, width, height);
+        shared_tile[ty + 1][0] = get_pixel(gray, row, col-1, width, height);
     }
     
     // Right Column
     if (tx == TILE_SIZE - 1) {
-        shared_tile[ty + 1][TILE_SIZE + 1] = get_pixel(gray, (unsigned)row, (unsigned)col+1, width, height);
+        shared_tile[ty + 1][TILE_SIZE + 1] = get_pixel(gray, row, col+1, width, height);
     }
     
     // Top row
     if (ty == 0) {
-        shared_tile[0][tx + 1] = get_pixel(gray, (unsigned)row-1, (unsigned)col, width, height);
+        shared_tile[0][tx + 1] = get_pixel(gray, row-1, col, width, height);
     }
 
     // Bottom row
     if (ty == TILE_SIZE - 1) {
-        shared_tile[TILE_SIZE + 1][tx + 1] = get_pixel(gray, (unsigned)row+1, col, width, height);
-    }
-
-    /* =========== Load the Corner Pixels =========== */
-    // top Left
-    if (tx == 0 && ty == 0) {
-        shared_tile[0][0] = get_pixel(gray, row-1, col-1, width, height);
-    }
-
-    // Top Right
-    if (tx == TILE_SIZE -1 && ty == 0) {
-        shared_tile[0][TILE_SIZE+1] = get_pixel(gray, row-1, col+1, width, height);
-    }
-
-    // bottom Left
-    if (tx == 0 && ty == TILE_SIZE - 1) {
-        shared_tile[TILE_SIZE+1][0] = get_pixel(gray, row+1, col-1, width, height);
-    }
-
-    // bottom right
-    if (tx == TILE_SIZE - 1 && ty == TILE_SIZE - 1) {
-        shared_tile[TILE_SIZE+1][TILE_SIZE+1] = get_pixel(gray, row+1, col+1, width, height);
+        shared_tile[TILE_SIZE + 1][tx + 1] = get_pixel(gray, row+1, col, width, height);
     }
 
     __syncthreads();
+    
+    // check out-of-bounds Thread
+    if (row >= height || col >= width)  {
+        return;
+    }
+
+    if (row == 0 || row == (int)height-1 || col == 0 || col == (int)width-1) {
+        filtered[row * width + col] = 0;
+    } else {
+        
+        int val = 4 * shared_tile[ty + 1][tx + 1] - shared_tile[ty][tx + 1] - shared_tile[ty + 2][tx + 1] - shared_tile[ty + 1][tx] - shared_tile[ty + 1][tx + 2];
+        filtered[row * width + col] = (uint8_t)max(0, min(255, val)); 
+    
+    }
 
 
+}
 
+static int write_pgm(const uint8_t *res, const char *path, unsigned int width, unsigned int height, size_t img_size) {
+
+    FILE *output_pgm = fopen(path, "wb");
+
+    if (output_pgm == NULL) {
+        fprintf(stderr, "ERROR: Failed to write to image");
+        return -4;
+    }
+
+    fprintf(output_pgm, "P5\n");
+    fprintf(output_pgm, "%d %d", width, height);
+    fprintf(output_pgm, "255\n");
+    size_t wrote_bytes = fwrite(res, 1, img_size, output_pgm);
+    fclose(output_pgm);
+
+    if (wrote_bytes != img_size) {
+        fprintf(stderr, "ERROR: Short write to image, expected %zu bytes but wrote %zu bytes \n", img_size, wrote_bytes);
+        return - 4;
+    }
+
+    return 0;
 
 
 }
@@ -280,10 +295,15 @@ int main(int argc, char *argv[]) {
     CHECK_CUDA(cudaGetLastError());
     CHECK_CUDA(cudaDeviceSynchronize());
 
+    // Copy result back 
+    CHECK_CUDA(cudaMemcpy(h_output, d_output, gray_size, cudaMemcpyDeviceToHost));
+
+    err_code = write_pgm(h_output, output, width, height, gray_size);
+
     free(h_grayscale);
     free(h_output);
     CHECK_CUDA(cudaFree(d_grayscale));
     CHECK_CUDA(cudaFree(d_output));
-    printf("SUCCESSFULL\n");
+    
     return err_code;
 }
